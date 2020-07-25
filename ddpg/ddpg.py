@@ -14,6 +14,7 @@ import os
 from replaybuffer import ReplayBuffer
 from protect_loop import Protect_loop
 from actor_critic import Actor, Critic
+from ounoise import OUNoise
 tf.keras.backend.set_floatx('float64')
 
 
@@ -23,6 +24,7 @@ class DDPG:
         self.env = env
         self.EPSILON = 0.4
         self.EPISODES = 100
+        self.MAX_TIME_STEPS = 50
         self.s_dim = s_dim
         self.a_dim = a_dim
         self.GAMMA = gamma
@@ -31,7 +33,7 @@ class DDPG:
         self.minibatch_size = minibatch_size
         self.actor_lr = actor_lr
         self.critic_lr = critic_lr
-
+        self.ou_noise = OUNoise(env.action_space.shape[0])
         self.actor = Actor(self.s_dim, self.a_dim).model()
         self.target_actor = Actor(self.s_dim, self.a_dim).model()
         self.actor_opt = tf.keras.optimizers.Adam(learning_rate=self.actor_lr)
@@ -80,11 +82,12 @@ class DDPG:
         self.actor_opt.apply_gradients(zip(da_dtheta, self.actor.trainable_variables))
         self.update_target()
 
-    def get_action(self, s):
+    def get_action(self, s, t):
         if np.random.rand(1) < 0.2:
             return self.env.action_space.sample()
         else:
-            return self.actor(s[None, :])
+            action = self.actor(s[None, :])
+            return self.ou_noise.get_action(action, t)
 
     def train(self, render=False):
         # current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -94,10 +97,10 @@ class DDPG:
             for i in range(self.EPISODES):
                 R = 0
                 s = self.env.reset()
-                for _ in range(50):
+                for t in range(self.MAX_TIME_STEPS):
                     if render:
                         self.env.render()
-                    a = self.get_action(s)
+                    a = self.get_action(s, t)
                     s_, r, d, _ = self.env.step(a)
                     self.replay_buffer.add(np.reshape(s, (self.s_dim,)), np.reshape(a, (self.a_dim,)), r,
                                            d, np.reshape(s_, (self.s_dim,)))
