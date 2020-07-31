@@ -8,6 +8,5 @@ Implementation of various RL algorithms in Tensorflow 2.x
 at the current iteration
 3. Example of how to use the DDPG class is shown in ```ddpg.py``` in the ```if __name__ == '__main__' ``` function
 
-<img style="float: left;" title="Episodic Rewards" src="ddpg/avg_episodic_reward.png" alt="Episodic Rewards" width="300" height="300"/>
-<img style="float: left;" title="states and inputs" src="ddpg/Trained_model_states.png" alt="states and inputs" width="300" height="300"/>
+<img style="float: left;" title="Episodic Rewards" src="ddpg/avg_episodic_reward.png" alt="Episodic Rewards" width="300" height="300"/> <img style="float: left;" title="states and inputs" src="ddpg/Trained_model_states.png" alt="states and inputs" width="300" height="300"/>
 
