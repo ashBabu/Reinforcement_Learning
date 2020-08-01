@@ -180,17 +180,17 @@ class DDPG:
     # For evaluation of the policy learned
     def collect_data(self, act_net):
         a_all, states_all = [], []
-        obs = env.reset()
+        obs = self.env.reset()
         for t in range(1000):
             obs = np.squeeze(obs)
             if obs.ndim == 1:
                 a = act_net(obs[None, :])
             else:
                 a = act_net(obs)
-            obs, _, done, _ = env.step(a)
+            obs, _, done, _ = self.env.step(a)
             states_all.append(obs)
             a_all.append(a)
-            env.render()
+            self.env.render()  # Uncomment this to see the actor in action (But not in python notebook)
             if done:
                 break
         states = np.squeeze(np.array(states_all))  # cos(theta), sin(theta), theta_dot
