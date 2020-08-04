@@ -20,14 +20,16 @@ import matplotlib.pyplot as plt
 
 
 class DDPG:
-    def __init__(self, env=gym.make('Pendulum-v0'), s_dim=2, a_dim=1, gamma=0.99, tau=0.001, buffer_size=1e06,
-                 minibatch_size=64, actor_lr=0.001, critic_lr=0.001):
+    def __init__(self, env=gym.make('Pendulum-v0'), s_dim=2, a_dim=1, gamma=0.99, episodes=100, tau=0.001,
+                 buffer_size=1e06, minibatch_size=64, actor_lr=0.001, critic_lr=0.001, save_name='final_weights',
+                 render=False):
+        self.save_name = save_name
+        self.render = render
         self.env = env
         self.upper_bound = env.action_space.high[0]
         self.lower_bound = env.action_space.low[0]
-        self.EPSILON = 0.4
-        self.EPISODES = 80
-        self.MAX_TIME_STEPS = 100
+        self.EPISODES = episodes
+        self.MAX_TIME_STEPS = 200
         self.s_dim = s_dim
         self.a_dim = a_dim
         self.GAMMA = gamma
@@ -108,7 +110,7 @@ class DDPG:
 
         with tf.GradientTape() as tape:
             target_actions = self.target_actor(s2_batch)
-            y = r_batch + gamma * self.target_critic([s2_batch, target_actions])
+            y = r_batch + self.GAMMA * self.target_critic([s2_batch, target_actions])
             critic_value = self.critic([s_batch, a_batch])
             critic_loss = tf.math.reduce_mean(tf.math.square(y - critic_value))
         critic_grad = tape.gradient(critic_loss, self.critic.trainable_variables)
@@ -127,11 +129,13 @@ class DDPG:
 
     def policy(self, s):
         # since batch normalization is done on self.actor, it is multiplied with upper_bound
-        action = self.actor(s[None, :]) * self.upper_bound + self.ou_noise()
+        if s.ndim == 1:
+            s = s[None, :]
+        action = self.actor(s) * self.upper_bound + self.ou_noise()
         action = np.clip(action, self.lower_bound, self.upper_bound)
         return action
 
-    def train(self, render=False):
+    def train(self):
         # To store reward history of each episode
         ep_reward_list = []
         # To store average reward history of last few episodes
@@ -141,10 +145,13 @@ class DDPG:
             for eps in range(self.EPISODES):
                 episode_reward = 0
                 s = self.env.reset()
-                # for t in range(self.MAX_TIME_STEPS):
-                done = False
-                while not done:
-                    if render:
+                """
+                if an env is created using the "gym.make" method, it will terminate after 200 steps
+                """
+                for t in range(self.MAX_TIME_STEPS):
+                # done = False
+                # while not done:
+                    if self.render:
                         self.env.render()
                     a = self.policy(s)
                     s_, r, done, _ = self.env.step(a)
@@ -163,25 +170,25 @@ class DDPG:
                 avg_reward_list.append(avg_reward)
                 monitor.add_data(avg_reward, q)
 
-            # self.save_weights()  # if you want to save weights
-            # self.plot_results(avg_reward=avg_reward_list, train=True)
+            self.save_weights(save_name=self.save_name)  # if you want to save weights
+            self.plot_results(avg_reward=avg_reward_list, train=True)
 
-    def save_weights(self):
-        self.actor.save_weights("training/pendulum_actor.h5")
-        self.critic.save_weights("training/pendulum_critic.h5")
-        self.target_actor.save_weights("training/pendulum_target_actor.h5")
-        self.target_critic.save_weights("training/pendulum_target_critic.h5")
+    def save_weights(self, save_name='final_weights'):
+        self.actor.save_weights("training/%s_actor.h5" % save_name)
+        self.critic.save_weights("training/%s_critic.h5" % save_name )
+        self.target_actor.save_weights("training/%s_target_actor.h5" % save_name)
+        self.target_critic.save_weights("training/%s_target_critic.h5" % save_name)
 
         # to save in other format
-        self.target_actor.save_weights('training/target_actor_weights', save_format='tf')
-        self.target_critic.save_weights('training/target_critic_weights', save_format='tf')
+        self.target_actor.save_weights('training/%s_actor_weights' % save_name, save_format='tf')
+        self.target_critic.save_weights('training/%s_critic_weights' % save_name, save_format='tf')
         print('Training completed and network weights saved')
 
     # For evaluation of the policy learned
-    def collect_data(self, act_net):
+    def collect_data(self, act_net, iterations=1000):
         a_all, states_all = [], []
         obs = self.env.reset()
-        for t in range(1000):
+        for t in range(iterations):
             obs = np.squeeze(obs)
             if obs.ndim == 1:
                 a = act_net(obs[None, :])
@@ -190,9 +197,9 @@ class DDPG:
             obs, _, done, _ = self.env.step(a)
             states_all.append(obs)
             a_all.append(a)
-            self.env.render()  # Uncomment this to see the actor in action (But not in python notebook)
-            if done:
-                break
+            # self.env.render()  # Uncomment this to see the actor in action (But not in python notebook)
+            # if done:
+            #     break
         states = np.squeeze(np.array(states_all))  # cos(theta), sin(theta), theta_dot
         a_all = np.squeeze(np.array(a_all))
         return states, a_all
@@ -205,7 +212,7 @@ class DDPG:
             plt.xlabel("Episode")
             plt.ylabel("Avg. Epsiodic Reward")
             plt.show()
-        else:
+        else:  # work only for Pendulum-v0 environment
             fig, ax = plt.subplots(3, sharex=True)
             theta = np.arctan2(states[:, 1], states[:, 0])
             ax[0].set_ylabel('u')
