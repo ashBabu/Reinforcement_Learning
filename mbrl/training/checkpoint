@@ -1,0 +1,2 @@
+model_checkpoint_path: "pend_fwd_dyn_model2"
+all_model_checkpoint_paths: "pend_fwd_dyn_model2"
