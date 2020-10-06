@@ -1,9 +1,8 @@
 import gym
 import jax.numpy as jnp
+import pickle
 import numpy as np
-
 from jax import grad, jacobian, jacfwd
-
 # try:
 #     #note autograd should be replacable by jax in future
 #     # import autograd.numpy as np
@@ -27,12 +26,22 @@ print('This will work only with Tensorflow 2.x')
 
 class ReplayBuffer:
 
-    def __init__(self, buffer_size):
+    def __init__(self, buffer_size, save=True):
         self.buffer_size = buffer_size
         self.count = 0
         self.buffer = deque()
+        self.save = save
+        self.state_experinece = {'obs': [], 'actions': [], 'rewards': [],
+                            'dones': [], 'next_obs': []}
 
     def add(self, s, a, r, d, s2):
+        if self.save:
+            self.state_experinece['obs'].append(s)
+            self.state_experinece['actions'].append(a)
+            self.state_experinece['rewards'].append(r)
+            self.state_experinece['dones'].append(d)
+            self.state_experinece['next_obs'].append(s2)
+        np.save('data/state_experience.npy', self.state_experinece, allow_pickle=True)
         experience = (s, a, r, d, s2)
         if self.count < self.buffer_size:
             self.buffer.append(experience)
@@ -56,10 +65,11 @@ class ReplayBuffer:
         if self.count < batch_size:
             batch = self.buffer
         else:
-            if r_num + batch_size > self.count:
-                batch = [self.buffer[index] for index in range(r_num, self.count)]
-            else:
-                batch = [self.buffer[index] for index in range(r_num, batch_size+r_num)]
+            # if r_num + batch_size > self.count:
+            #     batch = [self.buffer[index] for index in range(r_num, self.count)]
+            # else:
+            #     batch = [self.buffer[index] for index in range(r_num, batch_size+r_num)]
+            batch = [self.buffer[index] for index in range(self.count-batch_size, self.count)]
 
         s_batch = np.array([_[0] for _ in batch])
         a_batch = np.array([_[1] for _ in batch])
@@ -72,6 +82,16 @@ class ReplayBuffer:
     def clear(self):
         self.buffer.clear()
         self.count = 0
+
+    def load_(self, name='state_experience'):
+        data = np.load('data/%s' % name, allow_pickle=True)
+        assert(data, dict)
+        obs = np.array(data.item().get('obs'))
+        actions = np.array(data.item().get('actions'))
+        rewards = np.array(data.item().get('rewards'))
+        dones = np.array(data.item().get('dones'))
+        next_obs = np.array(data.item().get('next_obs'))
+        return obs, actions, rewards, dones, next_obs
 
 
 class FwdDynamics:
@@ -92,20 +112,20 @@ class FwdDynamics:
 
         x = concatenate([state_out, action_out])
         out = BatchNormalization()(x)
-        out = Dense(512, activation="relu")(out)
+        out = Dense(64, activation="relu")(out)
         out = BatchNormalization()(out)
         out = Dense(self.state_dim, activation='linear')(out)
         return Model(inputs=[state, action], outputs=out)
 
 
 class LearnModel:
-    def __init__(self, env_name='Pendulum-v0', actor_lr=0.001, minibatch_size=50, update_freq=64, buffer_size=1e06):
+    def __init__(self, env_name='Pendulum-v0', lr=0.001, minibatch_size=50, update_freq=64, buffer_size=1e06):
         self.env = gym.make(env_name)
         self.a_dim = self.env.action_space.shape[0]
         self.s_dim = self.env.observation_space.shape[0]
-        self.actor_lr = actor_lr
+        self.lr = lr
         self.dyn = FwdDynamics(self.s_dim, self.a_dim).model()
-        self.dyn_opt = opt.Adam(learning_rate=self.actor_lr)
+        self.dyn_opt = opt.Adam(learning_rate=self.lr)
 
         self.update_freq = update_freq
         self.minibatch_size = minibatch_size
@@ -152,7 +172,7 @@ class LearnModel:
             s_, r, done, _ = self.env.step(a)
             self.buffer.add(np.reshape(x0, (self.s_dim,)), np.reshape(a, (self.a_dim,)), r,
                                    done, np.reshape(s_, (self.s_dim,)))
-            if self.buffer.size() > self.update_freq:
+            if not self.buffer.size() % self.update_freq:
                 self.do_update()
             x0 = s_
 
@@ -167,24 +187,37 @@ class LearnModel:
         network.load_weights('training/%s' % name)
         return network
 
+    def check_model(self):
+        print('starting_state:', self.env.reset())
+        for _ in range(100):
+            act = self.env.action_space.sample()
+            obs, _, _, _ = self.env.step(act)
+
+        # obs = np.array([-1., 0., 0.03])  # [cos(theta), sin(theta), theta_dot] corresponding to theta = pi
+        # self.env.env.state = [np.pi, 0.03]
+        # print('action taken:', act)
+        print('current_state:', obs)
+        s_pred = self.dyn([obs[None, :], act[None, :]])
+        s1, _, _, _ = self.env.step(act)
+        print('Actual state:', s1)
+        print('Predicted state:', s_pred)
+
 
 if __name__ == '__main__':
-    saveWeights = False
+    saveWeights = True
     modellearn = LearnModel(env_name='Pendulum-v0', actor_lr=0.001, minibatch_size=64, update_freq=50, buffer_size=1000)
     if saveWeights:
-        modellearn.train(1000)
-        modellearn.save_weights(modellearn.dyn, save_name='pend_fwd_dyn_model2')
+        """pend_fwd_dyn_model is a fully trained fwd dynamic model. It has 512 neurons in the line
+        out = Dense(512, activation="relu")(out) """
+        modellearn.train(1000000)
+        modellearn.save_weights(modellearn.dyn, save_name='pend_fwd_dyn_model_test')
     else:
-        modellearn.dyn.load_weights('training/pend_fwd_dyn_model')
+        modellearn.dyn.load_weights('training/pend_fwd_dyn_model_64')
 
-    act = modellearn.env.action_space.sample()
-    s0 = modellearn.env.reset()
-    print('starting_state:', s0)
-    s_pred = modellearn.dyn([s0[None, :], act[None, :]])
-    s1, _, _, _ = modellearn.env.step(act)
-
-    print('Actual state:', s1)
-    print('Predicted state:', s_pred)
+    theta = np.linspace(0, 2*np.pi, 100)
+    # act = modellearn.env.action_space.sample()
+    act = np.array([2.])
+    modellearn.check_model()
 
     print('done')
 
