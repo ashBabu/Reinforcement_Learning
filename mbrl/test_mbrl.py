@@ -208,7 +208,7 @@ if __name__ == '__main__':
     buffer_size = 1e06
     n_rollouts, horizon = 40, 40
 
-    learn_dyn = LearnModel(env_name=env_name, actor_lr=0.001, minibatch_size=50, update_freq=64, buffer_size=1e06)
+    learn_dyn = LearnModel(env_name=env_name, lr=0.001, minibatch_size=50, update_freq=64, buffer_size=1e06)
 
     learn_dyn.dyn.load_weights('training/pend_fwd_dyn_model_64')
 
