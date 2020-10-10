@@ -2,6 +2,7 @@ import gym
 import jax.numpy as jnp
 import pickle
 import numpy as np
+import time
 from jax import grad, jacobian, jacfwd
 # try:
 #     #note autograd should be replacable by jax in future
@@ -85,7 +86,7 @@ class ReplayBuffer:
 
     def load_(self, name='state_experience'):
         data = np.load('data/%s' % name, allow_pickle=True)
-        assert(data, dict)
+        # assert(data, dict)
         obs = np.array(data.item().get('obs'))
         actions = np.array(data.item().get('actions'))
         rewards = np.array(data.item().get('rewards'))
@@ -121,6 +122,7 @@ class FwdDynamics:
 class LearnModel:
     def __init__(self, env_name='Pendulum-v0', lr=0.001, minibatch_size=50, update_freq=64, buffer_size=1e06):
         self.env = gym.make(env_name)
+        self.dt = self.env.dt
         self.a_dim = self.env.action_space.shape[0]
         self.s_dim = self.env.observation_space.shape[0]
         self.lr = lr
@@ -154,13 +156,16 @@ class LearnModel:
         # return np.random.uniform(env.action_space.low, env.action_space.high, env.action_space.shape)
 
     def do_update(self):
+        """
+        Trying to find the increment in states, f_(theta), from the equation
+        s_{t+1} = s_t + dt * f_(theta)(s_t, a_t)
+        """
         s_batch, a_batch, r_batch, d_batch, s2_batch = self.buffer.sample_batch(self.minibatch_size)
-        obs_actual = s_batch[1:]
+        obs_actual_error = (s2_batch - s_batch)/self.dt
 
         with tf.GradientTape() as tape:
-            obs_pred = self.dyn([s_batch[:-1], a_batch[:-1]])
-            # print(s_batch[:-1].shape, a_batch[:-1].shape)
-            loss = tf.math.reduce_mean(tf.math.square(obs_actual - obs_pred))
+            obs_pred_error = self.dyn([s_batch, a_batch])
+            loss = tf.math.reduce_mean(tf.math.square(obs_actual_error - obs_pred_error))
         dyn_grad = tape.gradient(loss, self.dyn.trainable_variables)
         self.dyn_opt.apply_gradients(zip(dyn_grad, self.dyn.trainable_variables))
 
@@ -188,29 +193,33 @@ class LearnModel:
         return network
 
     def check_model(self):
-        print('starting_state:', self.env.reset())
+        s0 = self.env.reset()
+        print('starting_state:', s0)
+        s0 = s0[None, :]
         for _ in range(100):
             act = self.env.action_space.sample()
-            obs, _, _, _ = self.env.step(act)
+            obs_actual, _, _, _ = self.env.step(act)
+            obs_pred = s0 + self.dt * self.dyn([s0, act[None, :]])
+            s0 = obs_pred
 
         # obs = np.array([-1., 0., 0.03])  # [cos(theta), sin(theta), theta_dot] corresponding to theta = pi
         # self.env.env.state = [np.pi, 0.03]
         # print('action taken:', act)
-        print('current_state:', obs)
-        s_pred = self.dyn([obs[None, :], act[None, :]])
-        s1, _, _, _ = self.env.step(act)
-        print('Actual state:', s1)
-        print('Predicted state:', s_pred)
+        print('current_state:', obs_actual)
+        print('Predicted state:', obs_pred)
 
 
 if __name__ == '__main__':
     saveWeights = True
-    modellearn = LearnModel(env_name='Pendulum-v0', actor_lr=0.001, minibatch_size=64, update_freq=50, buffer_size=1000)
+    modellearn = LearnModel(env_name='Pendulum-v0', lr=0.001, minibatch_size=64, update_freq=50, buffer_size=1000)
+    iterations = 1000000
     if saveWeights:
         """pend_fwd_dyn_model is a fully trained fwd dynamic model. It has 512 neurons in the line
         out = Dense(512, activation="relu")(out) """
-        modellearn.train(1000000)
-        modellearn.save_weights(modellearn.dyn, save_name='pend_fwd_dyn_model_test')
+        now = time.time()
+        modellearn.train(iterations)
+        print('Time taken for %.2f iterations is' %iterations, time.time()-now)
+        modellearn.save_weights(modellearn.dyn, save_name='pend_fwd_dyn_model_obs_error')
     else:
         modellearn.dyn.load_weights('training/pend_fwd_dyn_model_64')
 
