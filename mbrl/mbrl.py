@@ -7,6 +7,7 @@ import math
 import mppi_fast
 import tensorflow as tf
 from gym import wrappers, logger as gym_log
+import copy
 
 gym_log.set_level(gym_log.INFO)
 logger = logging.getLogger(__name__)
@@ -17,9 +18,10 @@ logging.basicConfig(level=logging.INFO,
 
 class MBRL:
     def __init__(self, env_name, horizon=15, rollouts=100, epochs=150,
-                bootstrapIter=100, bootstrap=True, noise_sigma=1, lambda_=1, downward_start=True):
+                bootstrapIter=100, bootstrap=False, noise_sigma=1, lambda_=1, downward_start=True):
         self.env = gym.make(env_name)
         self.env.reset()
+        self.env_cpy = copy.copy(self.env.env)
         # self.agent = agent
         # self.dynamics = dynamics
         # self.reward = reward_fn
@@ -49,12 +51,12 @@ class MBRL:
         torch.manual_seed(randseed)
         logger.info("random seed %d", randseed)
 
-        self.mppi_gym = mppi_fast.MPPI(self.dynamics, self.running_cost, self.s_dim-1, self.noise_sigma, num_samples=self.rollouts,
+        self.mppi_gym = mppi_fast.MPPI(self.true_dynamics_gym, self.running_cost, self.s_dim-1, self.noise_sigma, num_samples=self.rollouts,
                                        horizon=self.horizon, lambda_=self.lambda_, device=self.d,
                                   u_min=torch.tensor(self.a_low, dtype=torch.double, device=self.d),
                                   u_max=torch.tensor(self.a_high, dtype=torch.double, device=self.d))
 
-    # def run_mbrl(self):
+    def run_mbrl(self):
         total_reward, data = mppi_fast.run_mppi(self.mppi_gym, self.env, self.train)
 
     def bootstrap(self):
@@ -94,19 +96,25 @@ class MBRL:
     def dynamics(self, state, perturbed_action):
         state, perturbed_action = state.numpy(), perturbed_action.numpy()
         u = np.clip(perturbed_action, self.a_low, self.a_high)
-        # obs = self.state2obs(state)
         xx = np.hstack((state, u))
-        # xx = np.hstack((obs, u))
         state_residual = self.fwd_dyn_nn(xx)
         # output dtheta directly so can just add
         next_state = state + state_residual.numpy()
         next_state[:, 0] = self.angle_normalize(next_state[:, 0])
         return torch.from_numpy(next_state)
 
-    def true_dynamics(self, state, perturbed_action):
-        self.env.setstate(state)
-        next_state, _, _, _ = self.env.step(perturbed_action)
-        return next_state
+    def true_dynamics_gym(self, state, perturbed_action):
+        """
+         when using this function as input argument to mppi, comment out the line retrain_dynamics(dataset) in run_mppi
+        """
+        ss = state.shape[0]
+        next_state = np.zeros_like(state)
+        u = torch.clamp(perturbed_action, -2, 2)
+        for i in range(ss):
+            self.env_cpy.state = state[i]
+            self.env_cpy.step(u[i])
+            next_state[i] = self.env_cpy.state
+        return torch.from_numpy(next_state)
 
     def angular_diff_batch(self, a, b):
         """Angle difference from b to a (a - b)"""
@@ -136,8 +144,6 @@ class MBRL:
         model.compile(optimizer='adam', loss='mse', metrics=['accuracy'])
         return model
 
-    # dyn_network.save_weights('pend_fwd_dyn_weights')
-
     def obs2state(self, obs):
         a = np.array([np.arctan2(obs[1], obs[0]), obs[2]])
         a[0] = self.angle_normalize(a[0])
@@ -155,9 +161,8 @@ if __name__ == "__main__":
     ENV_NAME = "Pendulum-v0"
     TIMESTEPS = 15  # T
     N_SAMPLES = 100  # K
-    # bootstrap network with random actions
 
     mbrl = MBRL(ENV_NAME)
-    # MBRL.run_mbrl()
+    mbrl.run_mbrl()
     # env = wrappers.Monitor(env, '/tmp/mppi/', force=True)
     # env.reset()
