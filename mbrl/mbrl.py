@@ -18,13 +18,10 @@ logging.basicConfig(level=logging.INFO,
 
 class MBRL:
     def __init__(self, env_name, horizon=15, rollouts=100, epochs=150,
-                bootstrapIter=100, bootstrap=False, noise_sigma=1, lambda_=1, downward_start=True):
+                bootstrapIter=100, bootstrap=True, noise_sigma=1, lambda_=1, downward_start=True):
         self.env = gym.make(env_name)
         self.env.reset()
-        self.env_cpy = copy.copy(self.env.env)
-        # self.agent = agent
-        # self.dynamics = dynamics
-        # self.reward = reward_fn
+        self.env_cpy = copy.copy(self.env.env)  # used only when true_dynamics_gym is used
         self.horizon = horizon
         self.rollouts = rollouts
         self.a_low, self.a_high = self.env.action_space.low, self.env.action_space.high
@@ -51,7 +48,7 @@ class MBRL:
         torch.manual_seed(randseed)
         logger.info("random seed %d", randseed)
 
-        self.mppi_gym = mppi_fast.MPPI(self.true_dynamics_gym, self.running_cost, self.s_dim-1, self.noise_sigma, num_samples=self.rollouts,
+        self.mppi_gym = mppi_fast.MPPI(self.dynamics, self.running_cost, self.s_dim-1, self.noise_sigma, num_samples=self.rollouts,
                                        horizon=self.horizon, lambda_=self.lambda_, device=self.d,
                                   u_min=torch.tensor(self.a_low, dtype=torch.double, device=self.d),
                                   u_max=torch.tensor(self.a_high, dtype=torch.double, device=self.d))
