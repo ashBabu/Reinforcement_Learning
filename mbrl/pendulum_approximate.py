@@ -72,7 +72,6 @@ if __name__ == "__main__":
         next_state[:, 0] = angle_normalize(next_state[:, 0])
         return next_state
 
-
     def true_dynamics(state, perturbed_action):
         # true dynamics from gym
         th = state[:, 0].view(-1, 1)
@@ -93,7 +92,6 @@ if __name__ == "__main__":
         state = torch.cat((newth, newthdot), dim=1)
         return state
 
-
     def angular_diff_batch(a, b):
         """Angle difference from b to a (a - b)"""
         d = a - b
@@ -101,10 +99,8 @@ if __name__ == "__main__":
         d[d < -math.pi] += 2 * math.pi
         return d
 
-
     def angle_normalize(x):
         return (((x + math.pi) % (2 * math.pi)) - math.pi)
-
 
     def running_cost(state, action):
         theta = state[:, 0]
@@ -112,7 +108,6 @@ if __name__ == "__main__":
         action = action[:, 0]
         cost = angle_normalize(theta) ** 2 + 0.1 * theta_dt ** 2 + 0.001 * action ** 2
         return cost
-
 
     dataset = None
     # create some true dynamics validation set to compare model against

@@ -21,7 +21,7 @@ class MBRL:
                 bootstrapIter=100, bootstrap=True, noise_sigma=1, lambda_=1, downward_start=True):
         self.env = gym.make(env_name)
         self.env.reset()
-        self.env_cpy = copy.copy(self.env.env)  # used only when true_dynamics_gym is used
+        self.env_cpy = copy.deepcopy(self.env.env)  # used only when true_dynamics_gym is used
         self.horizon = horizon
         self.rollouts = rollouts
         self.a_low, self.a_high = self.env.action_space.low, self.env.action_space.high
