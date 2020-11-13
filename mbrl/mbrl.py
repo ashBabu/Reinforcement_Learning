@@ -34,11 +34,12 @@ class MBRL:
         self.noise_sigma = torch.tensor(noise_sigma, device=self.d, dtype=self.dtype)
         self.lambda_ = lambda_
         self.epochs = epochs,
+        self.storeData = None
         self.bootstrapIter = bootstrapIter
         if downward_start:
             self.downwardstart()
         if bootstrap:
-            self.bootstrap()
+            self.bootstrap(self.bootstrapIter)
 
         randseed = 24
         if randseed is None:
@@ -50,17 +51,17 @@ class MBRL:
 
         self.mppi_gym = mppi_fast.MPPI(self.dynamics, self.running_cost, self.s_dim-1, self.noise_sigma, num_samples=self.rollouts,
                                        horizon=self.horizon, lambda_=self.lambda_, device=self.d,
-                                  u_min=torch.tensor(self.a_low, dtype=torch.double, device=self.d),
-                                  u_max=torch.tensor(self.a_high, dtype=torch.double, device=self.d))
+                                       u_min=torch.tensor(self.a_low, dtype=torch.double, device=self.d),
+                                       u_max=torch.tensor(self.a_high, dtype=torch.double, device=self.d))
 
     def run_mbrl(self):
         total_reward, data = mppi_fast.run_mppi(self.mppi_gym, self.env, self.train)
 
-    def bootstrap(self):
-        logger.info("bootstrapping with random action for %d actions", self.bootstrapIter)
+    def bootstrap(self, bootstrapIter=100):
+        logger.info("bootstrapping with random action for %d actions", bootstrapIter)
         state_dim = self.s_dim - 1  # for pendulum
-        new_data = np.zeros((self.bootstrapIter, state_dim+self.a_dim))
-        for i in range(self.bootstrapIter):
+        new_data = np.zeros((bootstrapIter, state_dim+self.a_dim))
+        for i in range(bootstrapIter):
             pre_action_state = self.env.env.state
             action = np.random.uniform(low=self.a_low, high=self.a_high)
             self.env.step([action])
@@ -69,6 +70,7 @@ class MBRL:
             new_data[i, state_dim:] = action
 
         self.train(new_data)
+        self.storeData = new_data
         logger.info("bootstrapping finished")
         self.downwardstart()
 
@@ -80,13 +82,18 @@ class MBRL:
         Trying to find the increment in states, f_(theta), from the equation
         s_{t+1} = s_t + dt * f_(theta)(s_t, a_t)
         """
-        dataset[:, 0] = self.angle_normalize(dataset[:, 0])
+        if self.storeData is not None:
+            self.storeData = np.vstack((self.storeData, dataset))
+        else:
+            self.storeData = dataset
+
+        self.storeData[:, 0] = self.angle_normalize(self.storeData[:, 0])
         d = self.s_dim - 1
         a = int(d/2) - 1
-        dtheta = self.angular_diff_batch(dataset[1:, a], dataset[:-1, a])
-        dtheta_dt = dataset[1:, a+1:d] - dataset[:-1, a+1:d]
+        dtheta = self.angular_diff_batch(self.storeData[1:, a], self.storeData[:-1, a])
+        dtheta_dt = self.storeData[1:, a+1:d] - self.storeData[:-1, a+1:d]
         Y = np.hstack((dtheta.reshape(-1, 1), dtheta_dt.reshape(-1, 1)))  # x' - x residual
-        xu = dataset[:-1]  # make same size as Y
+        xu = self.storeData[:-1]  # make same size as Y
         # xu = np.hstack((np.cos(xu[:, 0]).reshape(-1, 1), np.sin(xu[:, 0]).reshape(-1, 1), xu[:, 1:]))
         self.fwd_dyn_nn.fit(xu, Y, epochs=150)
 
