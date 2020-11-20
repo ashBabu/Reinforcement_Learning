@@ -160,7 +160,7 @@ class DDPG:
                     episode_reward += r
                     if self.replay_buffer.size() > self.minibatch_size:
                         q = self.train_step()
-                    s = s_
+                    s = s_.reshape(1, -1)
                     if interruption():
                         break
                 ep_reward_list.append(episode_reward)
@@ -233,7 +233,7 @@ if __name__ == '__main__':
     total_episodes = 100
     gamma = 0.99  # Discount factor for future rewards
     tau = 0.005  # Used to update target networks
-    train = False
+    train = True
     ddpg = DDPG(env, s_dim=s_dim, a_dim=a_dim, gamma=gamma, tau=tau,
                       actor_lr=actor_lr, critic_lr=critic_lr)
     if train:
